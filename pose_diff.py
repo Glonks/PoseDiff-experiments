@@ -94,24 +94,42 @@ class PoseDiffModel(nn.Module):
 
     def extract_visual_features(
             self,
-            image: torch.Tensor,
-            discard_conditioning: bool = False
-    ) -> torch.Tensor:
+            image: torch.Tensor
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """
-        Either return the extracted features from input images or null features expanded
-        to batch_size if using CGF.
-        """
-        if discard_conditioning:
-            batch_size = image.shape[0]
-            features = self.null_features[None, :].expand(batch_size, -1)
-        else:
-            features = (
-                self.visual_feature_extractor(image)  # [batch_size, 2048, 1, 1]
-                .squeeze(-1)                          # [batch_size, 2048, 1]
-                .squeeze(-1)                          # [batch_size, 2048]
-            )
+        Extract features from input images.
 
-        return features
+        If CFG is enabled, we also grab the null features and produced a mixed batch of
+        features for training.
+        """
+        batch_size = image.shape[0]
+
+        real_features = (
+            self.visual_feature_extractor(image)
+            .squeeze(-1)
+            .squeeze(-1)
+        )
+
+        null_features = (
+            self.null_features
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
+
+        if self.training:
+            if self.enable_cfg:
+                discard_mask = torch.rand(batch_size, device=self.device) < self.discard_conditioning_probability
+            else:
+                discard_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+
+            discard_mask = discard_mask.unsqueeze(-1)
+
+            features = torch.where(discard_mask, null_features, real_features)
+
+            return features
+
+        else:
+            return real_features, null_features
 
     def forward_training(
             self,
@@ -124,9 +142,7 @@ class PoseDiffModel(nn.Module):
         batch_size = image.shape[0]
 
         # Grab features (maybe with CFG)
-        # TODO: change this to per sample CFG sampling
-        discard_conditioning = (random.random() < self.discard_conditioning_probability) and self.enable_cfg
-        features = self.extract_visual_features(image, discard_conditioning=discard_conditioning)
+        features = self.extract_visual_features(image)
         features_projected = self.features_to_timestep_projector(features)
 
         # Sample timesteps
@@ -156,10 +172,13 @@ class PoseDiffModel(nn.Module):
         """
         batch_size = image.shape[0]
 
-        features = self.extract_visual_features(image, discard_conditioning=False)
+        # TODO: also grab null features here
+        features = self.extract_visual_features(image)
         features_projected = self.features_to_timestep_projector(features)
 
         # Diffusion: full reverse process
+        # TODO: Use CFG here
+        # TODO: Check if the diffuser needs to be updated for CFG
         x_t = torch.randn((batch_size, *self.keypoints_shape), device=self.device)
         for timestep in reversed(range(self.timesteps)):
             timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
@@ -168,7 +187,6 @@ class PoseDiffModel(nn.Module):
             condition_vector = torch.cat([features_projected, timestep_embedding], dim=-1)
             condition_embedding = self.condition_embedder(condition_vector)
 
-            # TODO: fix p_sample prototype to be more generic
             x_t = self.diffuser.p_sample(self.unet, x_t, timestep, condition=condition_embedding)
 
         return x_t
