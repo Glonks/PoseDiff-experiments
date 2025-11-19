@@ -5,12 +5,19 @@ This project aims to understand some of the design decisions implemented in the 
 and (maybe) provide support for them, and also explore some directions that we hypothesize can
 improve performance.
 
+## Directions to explore
+- D1: Increasing timesteps to make it easier to learn
+- D2: Use CFG to reduce pose diversity
+- D3: Using historical information (in some form) to make more informed decisions
+
 ## Model taxonomy
 - Baseline: DDPM with 100 timesteps
-- M1: DDPM with 1000 timesteps
-- M2: DPM++ with 1000 timesteps
-- M3: DPM++ (+ CFG) with 1000 timesteps
-- M4: DDPM (+ CFG) with 1000 timesteps [Stretch]
+- M1: DDPM with 1000 timesteps [D1]
+- M2: DPM++ with 1000 timesteps [D1] [Recover some performance]
+- M3: DPM++ (+ CFG) with 1000 timesteps [D2]
+- M4: DDPM (+ CFG) with 1000 timesteps [D2] [Stretch]
+- M5: DDPM with 100 timesteps and historical features [D3]
+- M6: DDPM with 1000 timesteps and historical features [D3] [Stretch]
 
 ## Things implemented
 - DDPM sampler
@@ -43,4 +50,6 @@ improve performance.
   - M2
   - M3
   - (Maybe) M4
+  - M5
+  - (Maybe) M6
 - Write the report
