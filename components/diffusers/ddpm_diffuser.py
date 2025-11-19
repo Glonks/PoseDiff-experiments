@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from components.diffusers.schedulers import cosine_beta_schedule
+
 from typing import Optional, Union, Callable
 
 
@@ -11,7 +13,7 @@ class DDPMDiffuser(nn.Module):
         self.timesteps = timesteps
 
         # Constants
-        betas = self.get_betas()
+        betas = cosine_beta_schedule(timesteps)
 
         alphas = 1 - betas
 
@@ -44,8 +46,8 @@ class DDPMDiffuser(nn.Module):
 
         # Register buffers
         self.register_buffer('betas', betas)
-        # self.register_buffer('alphas_cumprod', alphas_cumprod)
-        # self.register_buffer('alphas_cumprod_prev', alphas_cumprod_prev)
+        self.register_buffer('alphas_cumprod', alphas_cumprod)
+        self.register_buffer('alphas_cumprod_prev', alphas_cumprod_prev)
 
         self.register_buffer('q_posterior_mean_x_0_coefficient', q_posterior_mean_x_0_coefficient)
         self.register_buffer('q_posterior_mean_x_t_coefficient', q_posterior_mean_x_t_coefficient)
@@ -73,22 +75,6 @@ class DDPMDiffuser(nn.Module):
         # out = tensor[indices].reshape(batch_size, *([1] * (len(shape) - 1)))
 
         return out
-
-    def get_betas(self, s: float = 0.008) -> torch.Tensor:
-        """
-        Cosine beta scheduling consistent with "Improved Denoising Diffusion Probabilistic Models".
-        """
-        x = torch.arange(self.timesteps + 1, dtype=torch.float64)
-
-        alphas_cumprod = torch.cos(((x / self.timesteps) + s) / (1 + s) * (torch.pi / 2)) ** 2
-        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-
-        alphas = alphas_cumprod[1:] / alphas_cumprod[:-1]
-
-        betas = 1 - alphas
-        betas = torch.clip(betas, 0, 0.999)
-
-        return betas.to(torch.float32)
 
     def get_q_posterior_parameters(
             self,
