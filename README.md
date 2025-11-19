@@ -21,6 +21,7 @@ improve performance.
 ## Things to do
 - Implement:
   - DPM++ sampler [Aayush]
+  - LogSNR scheduling
   - Dataset [Kushal]
   - Optical flow based feature extractor [Shubh]
   - Training machinery (Trainer)
