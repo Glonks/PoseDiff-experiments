@@ -1,7 +1,5 @@
-import random
 import torch
 import torch.nn as nn
-import functools
 
 from torchvision import models
 
@@ -21,6 +19,7 @@ class PoseDiffModel(nn.Module):
         cfg_config = config['classifier_free_guidance']
         self.enable_cfg: bool = cfg_config['enable']
         self.discard_conditioning_probability: float = cfg_config['discard_conditioning_probability']
+        self.guidance_strength: float = cfg_config['strength']
 
         self.device: str = config['device']
 
@@ -47,7 +46,7 @@ class PoseDiffModel(nn.Module):
         condition_embedder_config = config['condition_embedder']
         self.condition_embedder = nn.Sequential(
             nn.Linear(2 * timestep_embedder_config['output_dim'], condition_embedder_config['hidden_dim']),
-            eval(condition_embedder_config['activation']),
+            eval(condition_embedder_config['activation'])(),
             nn.Linear(condition_embedder_config['hidden_dim'], condition_embedder_config['output_dim'])
         )
 
@@ -57,23 +56,22 @@ class PoseDiffModel(nn.Module):
             keypoint_dim,
             condition_embedder_config['output_dim'],
             unet_config['hidden_dims'],
-            eval(unet_config['activation'])
+            eval(unet_config['activation'])()
         )
+        if self.enable_cfg:
+            self.unet = CFGWrapper(self.unet, self.guidance_strength)
 
         # Null features for CFG
         self.null_features = nn.Parameter(torch.randn(visual_feature_extractor_output_shape[1]))
 
         self.to(self.device)
 
-    @staticmethod
-    def get_diffuser(config: dict) -> tuple[Union[DDPMDiffuser, ...], int]:
+    def get_diffuser(self, config: dict) -> tuple[Union[DDPMDiffuser, ...], int]:
         sampler = config['sampler']
         timesteps = config['timesteps']
 
         if sampler == 'ddpm':
             diffuser = DDPMDiffuser(timesteps)
-        elif sampler == 'ddim':
-            raise NotImplementedError()
         elif sampler == 'dpm++':
             raise NotImplementedError()
         else:
@@ -172,24 +170,48 @@ class PoseDiffModel(nn.Module):
         """
         batch_size = image.shape[0]
 
-        # TODO: also grab null features here
-        features = self.extract_visual_features(image)
-        features_projected = self.features_to_timestep_projector(features)
-
         # Diffusion: full reverse process
-        # TODO: Use CFG here
-        # TODO: Check if the diffuser needs to be updated for CFG
-        x_t = torch.randn((batch_size, *self.keypoints_shape), device=self.device)
-        for timestep in reversed(range(self.timesteps)):
-            timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
-            timestep_embedding = self.timestep_embedder(timestep)
+        if self.enable_cfg:
+            real_features, null_features = self.extract_visual_features(image)
+            real_features_projected = self.features_to_timestep_projector(real_features)
+            null_features_projected = self.features_to_timestep_projector(null_features)
 
-            condition_vector = torch.cat([features_projected, timestep_embedding], dim=-1)
-            condition_embedding = self.condition_embedder(condition_vector)
+            x_t = torch.randn(batch_size, *self.keypoints_shape, device=self.device)
+            for timestep in reversed(range(self.timesteps)):
+                timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
+                timestep_embedding = self.timestep_embedder(timestep)
 
-            x_t = self.diffuser.p_sample(self.unet, x_t, timestep, condition=condition_embedding)
+                real_condition_vector = torch.cat([real_features_projected, timestep_embedding], dim=-1)
+                real_condition_embedding = self.condition_embedder(real_condition_vector)
 
-        return x_t
+                null_condition_vector = torch.cat([null_features_projected, timestep_embedding], dim=-1)
+                null_condition_embedding = self.condition_embedder(null_condition_vector)
+
+                x_t = self.diffuser.p_sample(
+                    self.unet,
+                    x_t,
+                    timestep,
+                    real_condition=real_condition_embedding,
+                    null_condition=null_condition_embedding
+                )
+
+            return x_t
+
+        else:
+            features = self.extract_visual_features(image)
+            features_projected = self.features_to_timestep_projector(features)
+
+            x_t = torch.randn((batch_size, *self.keypoints_shape), device=self.device)
+            for timestep in reversed(range(self.timesteps)):
+                timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
+                timestep_embedding = self.timestep_embedder(timestep)
+
+                condition_vector = torch.cat([features_projected, timestep_embedding], dim=-1)
+                condition_embedding = self.condition_embedder(condition_vector)
+
+                x_t = self.diffuser.p_sample(self.unet, x_t, timestep, condition=condition_embedding)
+
+            return x_t
 
     def forward(
             self,

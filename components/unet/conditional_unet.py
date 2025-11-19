@@ -91,7 +91,12 @@ class ConditionalUNet(nn.Module):
 
         self.output_projector = nn.Linear(hidden_dims[0], keypoint_dim)
 
-    def forward(self, x: torch.Tensor, _, condition: torch.Tensor) -> torch.Tensor:
+    def forward(
+            self,
+            x: torch.Tensor,
+            timesteps: torch.Tensor,
+            condition: torch.Tensor
+    ) -> torch.Tensor:
         x = self.input_projector(x)
 
         # Forward through encoder
