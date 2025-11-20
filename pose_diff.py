@@ -100,34 +100,35 @@ class PoseDiffModel(nn.Module):
         If CFG is enabled, we also grab the null features and produced a mixed batch of
         features for training.
         """
-        batch_size = image.shape[0]
-
         real_features = (
             self.visual_feature_extractor(image)
             .squeeze(-1)
             .squeeze(-1)
         )
 
-        null_features = (
-            self.null_features
-            .unsqueeze(0)
-            .expand(batch_size, -1)
-        )
+        if self.enable_cfg:
+            batch_size = image.shape[0]
 
-        if self.training:
-            if self.enable_cfg:
-                discard_mask = torch.rand(batch_size, device=self.device) < self.discard_conditioning_probability
+            null_features = (
+                self.null_features
+                .unsqueeze(0)
+                .expand(batch_size, -1)
+            )
+
+            if self.training:
+                discard_mask = (
+                    torch.rand(batch_size, device=self.device) < self.discard_conditioning_probability
+                ).unsqueeze(-1)
+
+                features = torch.where(discard_mask, null_features, real_features)
+
+                return features
+
             else:
-                discard_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
-
-            discard_mask = discard_mask.unsqueeze(-1)
-
-            features = torch.where(discard_mask, null_features, real_features)
-
-            return features
+                return real_features, null_features
 
         else:
-            return real_features, null_features
+            return real_features
 
     def forward_training(
             self,
