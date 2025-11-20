@@ -14,6 +14,7 @@ class PoseDiffModel(nn.Module):
 
         # TODO: Figure out sane parameter config architecture
         self.input_image_shape: tuple[int, int, int] = config['image_shape']
+        self.num_keypoints: int = config['num_keypoints']
         self.keypoints_shape: tuple[int, int, int] = config['keypoints_shape']
 
         cfg_config = config['classifier_free_guidance']
@@ -52,9 +53,8 @@ class PoseDiffModel(nn.Module):
 
         # TODO: figure out keypoint_dim from the dataset
         unet_config = config['unet']
-        keypoint_dim = 3  # TODO: read this from config instead
         self.unet = ConditionalUNet(
-            keypoint_dim,
+            self.num_keypoints * 3,  # TODO: check if this is correct
             condition_embedder_config['output_dim'],
             unet_config['hidden_dims'],
             eval(unet_config['activation'])
@@ -159,7 +159,7 @@ class PoseDiffModel(nn.Module):
         noisy_keypoints = self.diffuser.q_sample(keypoints, timesteps, noise)
 
         # Get noise prediction
-        predicted_noise = self.unet(noisy_keypoints, timesteps, condition_embedding)
+        predicted_noise = self.unet(noisy_keypoints, timesteps, condition=condition_embedding)
 
         return predicted_noise
 
