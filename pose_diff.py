@@ -156,8 +156,8 @@ class PoseDiffModel(nn.Module):
 
         # Diffusion: forward process
         # noise = torch.randn_like(keypoints)
-        keypoints = keypoints.reshape(batch_size, -1)
-        noise = noise.reshape(batch_size, -1)
+        keypoints = keypoints.reshape(batch_size, -1)  # TODO: remove this once the dataset gives flat keypoints
+        noise = noise.reshape(batch_size, -1)  # TODO: remove this when the above is done
         noisy_keypoints = self.diffuser.q_sample(keypoints, timesteps, noise)
 
         # Get noise prediction

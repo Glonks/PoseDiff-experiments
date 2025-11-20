@@ -27,6 +27,7 @@ improve performance.
 
 ## Things to do
 - Implement:
+  - Have the dataset produce flattened keypoint data
   - DPM++ sampler [Aayush]
   - LogSNR scheduling
   - Dataset [Kushal]
