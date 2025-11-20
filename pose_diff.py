@@ -181,7 +181,7 @@ class PoseDiffModel(nn.Module):
             real_features_projected = self.features_to_timestep_projector(real_features)
             null_features_projected = self.features_to_timestep_projector(null_features)
 
-            x_t = torch.randn(batch_size, *self.keypoints_shape, device=self.device)
+            x_t = torch.randn(batch_size, self.num_keypoints * 3, device=self.device)
             for timestep in reversed(range(self.timesteps)):
                 timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
                 timestep_embedding = self.timestep_embedder(timestep)
@@ -206,7 +206,7 @@ class PoseDiffModel(nn.Module):
             features = self.extract_visual_features(image)
             features_projected = self.features_to_timestep_projector(features)
 
-            x_t = torch.randn((batch_size, *self.keypoints_shape), device=self.device)
+            x_t = torch.randn((batch_size, self.num_keypoints * 3), device=self.device)
             for timestep in reversed(range(self.timesteps)):
                 timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
                 timestep_embedding = self.timestep_embedder(timestep)
