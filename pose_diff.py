@@ -52,11 +52,12 @@ class PoseDiffModel(nn.Module):
 
         # TODO: figure out keypoint_dim from the dataset
         unet_config = config['unet']
+        keypoint_dim = 3  # TODO: read this from config instead
         self.unet = ConditionalUNet(
             keypoint_dim,
             condition_embedder_config['output_dim'],
             unet_config['hidden_dims'],
-            eval(unet_config['activation'])()
+            eval(unet_config['activation'])
         )
         if self.enable_cfg:
             self.unet = CFGWrapper(self.unet, self.guidance_strength)

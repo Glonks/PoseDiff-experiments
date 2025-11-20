@@ -66,13 +66,12 @@ class DDPMDiffuser(nn.Module):
         """
         Get tensor values in a shape suitable for broadcasting.
         """
-        batch_size, *_ = tensor.shape
+        batch_size, *_ = shape
 
-        out = tensor.gather(-1, indices)
-        out = out.reshape(batch_size, *([1] * (len(shape) - 1)))
-
-        # TODO: test if this works
-        # out = tensor[indices].reshape(batch_size, *([1] * (len(shape) - 1)))
+        out = (
+            tensor[indices]
+            .reshape(batch_size, *([1] * (len(shape) - 1)))
+        )
 
         return out
 
