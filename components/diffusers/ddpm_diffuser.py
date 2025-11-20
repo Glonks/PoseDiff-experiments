@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from components.diffusers.schedulers import cosine_beta_schedule
+from .schedulers import cosine_beta_schedule
 
 from typing import Optional, Union, Callable
 

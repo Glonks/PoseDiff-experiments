@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from torchvision import models
 
-from components import *
+from .components import *
 
 from typing import Optional, Union
 

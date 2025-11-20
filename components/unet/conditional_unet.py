@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from components import FiLM
+from .. import FiLM
 
 from typing import Type
 
