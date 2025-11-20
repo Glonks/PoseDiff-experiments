@@ -132,7 +132,8 @@ class PoseDiffModel(nn.Module):
     def forward_training(
             self,
             image: torch.Tensor,
-            keypoints: torch.Tensor
+            keypoints: torch.Tensor,
+            noise: torch.Tensor
     ) -> torch.Tensor:
         """
         The forward call during training.
@@ -152,7 +153,7 @@ class PoseDiffModel(nn.Module):
         condition_embedding = self.condition_embedder(condition_vector)
 
         # Diffusion: forward process
-        noise = torch.randn_like(keypoints)
+        # noise = torch.randn_like(keypoints)
         noisy_keypoints = self.diffuser.q_sample(keypoints, timesteps, noise)
 
         # Get noise prediction
@@ -216,7 +217,8 @@ class PoseDiffModel(nn.Module):
     def forward(
             self,
             image: torch.Tensor,
-            keypoints: Optional[torch.Tensor] = None
+            keypoints: Optional[torch.Tensor] = None,
+            noise: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
         Returns predicted noise if in training mode and the actual keypoints produced by the
@@ -225,7 +227,9 @@ class PoseDiffModel(nn.Module):
         if self.training:
             if keypoints is None:
                 raise ValueError('keypoints need to be provided during training')
+            if noise is None:
+                raise ValueError('noise needs to be provided during training')
 
-            return self.forward_training(image, keypoints)
+            return self.forward_training(image, keypoints, noise)
         else:
             return self.forward_evaluation(image)
