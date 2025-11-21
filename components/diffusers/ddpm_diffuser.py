@@ -152,7 +152,7 @@ class DDPMDiffuser(nn.Module):
         x_0_prediction = (
             x_0_from_x_t_x_t_coefficient * x_t +
             x_0_from_x_t_noise_coefficient * predicted_noise
-        )
+        ).clamp(-1, 1)  # TODO: check if this is correct
 
         return x_0_prediction
 
