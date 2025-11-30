@@ -16,7 +16,7 @@ class PoseDiffModel(nn.Module):
         self.input_image_shape: tuple[int, int, int] = config['image_shape']
         self.num_keypoints: int = config['num_keypoints']
         self.keypoints_shape: tuple[int, int, int] = config['keypoints_shape']
-
+        self.enable_flow: bool = config['enable_flow']
         cfg_config = config['classifier_free_guidance']
         self.enable_cfg: bool = cfg_config['enable']
         self.discard_conditioning_probability: float = cfg_config['discard_conditioning_probability']
@@ -37,8 +37,26 @@ class PoseDiffModel(nn.Module):
 
         resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)  # Imagenet V2 weights
         self.visual_feature_extractor = nn.Sequential(*list(resnet.children())[:-1])
-
         visual_feature_extractor_output_shape = self.get_extracted_visual_features_shape(self.input_image_shape)
+        feature_dim = visual_feature_extractor_output_shape[1]
+        if self.enable_flow:
+            print("Optical Flow Stream ENABLED.")
+            # Flow Feature Extractor
+            resnet_flow = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+            self.flow_feature_extractor = nn.Sequential(*list(resnet_flow.children())[:-1])
+            
+            # Cross Attention Module
+            self.cross_attention = nn.MultiheadAttention(
+                embed_dim=feature_dim,
+                num_heads=8,
+                batch_first=True
+            )
+            self.norm = nn.LayerNorm(feature_dim)
+        else:
+            print("Optical Flow Stream DISABLED. Using RGB only.")
+            self.flow_feature_extractor = None
+            self.cross_attention = None
+            self.norm = None
 
         self.features_to_timestep_projector = nn.Linear(
             visual_feature_extractor_output_shape[1], timestep_embedder_config['output_dim']
@@ -90,7 +108,20 @@ class PoseDiffModel(nn.Module):
         feature = self.visual_feature_extractor(sample_input)
 
         return feature.shape
-
+    def extract_flow_features(self, flow: torch.Tensor) -> torch.Tensor:
+            """
+            Input: (Batch, Time, 3, H, W)
+            Output: (Batch, Time, Feature_Dim)
+            """
+            b, t, c, h, w = flow.shape
+            # Batch Folding: Merge Batch and Time
+            flow_folded = flow.view(b * t, c, h, w)
+            
+            # Extract features: (B*T, 2048, 1, 1) -> (B*T, 2048)
+            features = self.flow_feature_extractor(flow_folded).squeeze(-1).squeeze(-1)
+        
+            # Unfold: Restore Batch and Time dimensions
+            return features.view(b, t, -1)
     def extract_visual_features(
             self,
             image: torch.Tensor
@@ -130,10 +161,29 @@ class PoseDiffModel(nn.Module):
 
         else:
             return real_features
+    def fuse_visual_and_flow(self, visual_features: torch.Tensor, flow_features: torch.Tensor) -> torch.Tensor:
+            """
+            Applies Cross Attention:
+            - Query: Visual Features (RGB)
+            - Key/Value: Flow Features (Motion History)
+            """
+            # visual_features: (Batch, 2048)
+            # flow_features:   (Batch, Time, 2048)
 
+            # Prepare Query: Needs sequence dim -> (Batch, 1, 2048)
+            query = visual_features.unsqueeze(1)
+
+            # Cross Attention
+            # attn_output: (Batch, 1, 2048)
+            attn_output, _ = self.cross_attention(query=query, key=flow_features, value=flow_features)
+
+            fused = self.norm(query + attn_output)
+
+            return fused.squeeze(1) ##remove that time dimension
     def forward_training(
             self,
             image: torch.Tensor,
+            flow: Optional[torch.Tensor],
             keypoints: torch.Tensor,
             noise: torch.Tensor
     ) -> torch.Tensor:
@@ -144,6 +194,14 @@ class PoseDiffModel(nn.Module):
 
         # Grab features (maybe with CFG)
         features = self.extract_visual_features(image)
+        if self.enable_flow:
+            if flow is None:
+                raise ValueError("'enable_flow=True', but no flow data was passed!")
+            
+            flow_feat = self.extract_flow_features(flow)
+            
+            # Fuse the RGB (features) with the Flow
+            features = self.fuse_visual_and_flow(features, flow_feat)
         features_projected = self.features_to_timestep_projector(features)
 
         # Sample timesteps
@@ -168,7 +226,8 @@ class PoseDiffModel(nn.Module):
     @torch.no_grad()
     def forward_evaluation(
             self,
-            image: torch.Tensor
+            image: torch.Tensor,
+            flow: torch.Tensor
     ) -> torch.Tensor:
         """
         The forward call during evaluation.
@@ -178,9 +237,16 @@ class PoseDiffModel(nn.Module):
         # Diffusion: full reverse process
         if self.enable_cfg:
             real_features, null_features = self.extract_visual_features(image)
+            if self.enable_flow:
+                if flow is None:
+                    raise ValueError("Model config has 'enable_flow=True', but no flow data was passed!")
+                
+                flow_feat = self.extract_flow_features(flow)
+                real_features = self.fuse_visual_and_flow(real_features, flow_feat)
+                null_features = self.fuse_visual_and_flow(null_features, flow_feat)
             real_features_projected = self.features_to_timestep_projector(real_features)
             null_features_projected = self.features_to_timestep_projector(null_features)
-
+           
             x_t = torch.randn(batch_size, self.num_keypoints * 3, device=self.device)
             for timestep in reversed(range(self.timesteps)):
                 timestep = torch.full((batch_size,), timestep, device=self.device, dtype=torch.long)
@@ -204,6 +270,11 @@ class PoseDiffModel(nn.Module):
 
         else:
             features = self.extract_visual_features(image)
+            if self.enable_flow:
+                if flow is None:
+                    raise ValueError("'enable_flow=True', but no flow data was passed!")
+                flow_feat = self.extract_flow_features(flow)
+                features = self.fuse_visual_and_flow(features, flow_feat)
             features_projected = self.features_to_timestep_projector(features)
 
             x_t = torch.randn((batch_size, self.num_keypoints * 3), device=self.device)
@@ -221,6 +292,7 @@ class PoseDiffModel(nn.Module):
     def forward(
             self,
             image: torch.Tensor,
+            flow: Optional[torch.Tensor] = None, ## expected shape (B, T, 3, H, W)
             keypoints: Optional[torch.Tensor] = None,
             noise: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
@@ -234,6 +306,6 @@ class PoseDiffModel(nn.Module):
             if noise is None:
                 raise ValueError('noise needs to be provided during training')
 
-            return self.forward_training(image, keypoints, noise)
+            return self.forward_training(image,flow,keypoints, noise)
         else:
-            return self.forward_evaluation(image)
+            return self.forward_evaluation(image,flow)
