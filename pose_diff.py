@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from torchvision import models
 
-from .components import *
+from .components.diffusers import DDPMDiffuser, DPMPPDiffuser
 
 from typing import Optional, Union
 
@@ -85,14 +85,14 @@ class PoseDiffModel(nn.Module):
 
         self.to(self.device)
 
-    def get_diffuser(self, config: dict) -> tuple[Union[DDPMDiffuser, ...], int]:
+    def get_diffuser(self, config: dict) -> tuple[Union[DDPMDiffuser, DPMPPDiffuser], int]:
         sampler = config['sampler']
         timesteps = config['timesteps']
 
         if sampler == 'ddpm':
             diffuser = DDPMDiffuser(timesteps)
         elif sampler == 'dpm++':
-            raise NotImplementedError()
+            diffuser = DPMPPDiffuser(timesteps)
         else:
             raise ValueError(f'Unknown diffuser: {sampler}')
 
