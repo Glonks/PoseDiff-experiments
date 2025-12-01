@@ -22,11 +22,11 @@ condition_embedder:
   activation: nn.SiLU
 
 diffuser:
-  sampler: ddpm
+  sampler: dpm++
   timesteps: 100
 
 unet:
   hidden_dims: [128, 256, 512]
   activation: nn.SiLU
 
-enable_flow: true
+enable_flow: false
