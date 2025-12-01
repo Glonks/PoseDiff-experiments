@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from torchvision import models
 
-from components.diffusers import DDPMDiffuser, DPMPPDiffuser
+from .components import *
 
 from typing import Optional, Union
 
