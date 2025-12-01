@@ -37,6 +37,8 @@ class PoseDiffModel(nn.Module):
 
         resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)  # Imagenet V2 weights
         self.visual_feature_extractor = nn.Sequential(*list(resnet.children())[:-1])
+        for param in self.visual_feature_extractor.parameters():
+            param.requires_grad = False
         visual_feature_extractor_output_shape = self.get_extracted_visual_features_shape(self.input_image_shape)
         feature_dim = visual_feature_extractor_output_shape[1]
         if self.enable_flow:
